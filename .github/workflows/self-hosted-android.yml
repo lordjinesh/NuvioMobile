@@ -1,0 +1,87 @@
+name: Build Self-Hosted Android
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: self-hosted-android
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KEYSTORE_BASE64: ${{ secrets.NUVIO_KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.NUVIO_KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.NUVIO_KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.NUVIO_KEY_PASSWORD }}
+      BACKEND_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+      BACKEND_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+      SIMKL_ID: ${{ secrets.NUVIO_SIMKL_CLIENT_ID }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Read app version
+        id: ver
+        run: |
+          file=iosApp/Configuration/Version.xcconfig
+          version="$(grep -E '^[[:space:]]*MARKETING_VERSION' "$file" | head -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]+$//')"
+          if [[ -z "$version" ]]; then
+            echo "Could not read MARKETING_VERSION. File contents:" >&2
+            cat "$file" >&2
+            exit 1
+          fi
+          echo "Version: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Point updater at this repository
+        run: |
+          file=composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterRepository.kt
+          sed -i "s#repos/NuvioMedia/NuvioMobile/#repos/${GITHUB_REPOSITORY}/#" "$file"
+          grep -n "api.github.com" "$file"
+          grep -q "repos/${GITHUB_REPOSITORY}/" "$file"
+
+      - name: Write build configuration
+        run: |
+          keystore="${RUNNER_TEMP}/nuvio-release.jks"
+          printf '%s' "${KEYSTORE_BASE64}" | base64 --decode > "${keystore}"
+          {
+            echo "NUVIO_RELEASE_STORE_FILE=${keystore}"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=${KEYSTORE_PASSWORD}"
+            echo "NUVIO_RELEASE_KEY_ALIAS=${KEY_ALIAS}"
+            echo "NUVIO_RELEASE_KEY_PASSWORD=${KEY_PASSWORD}"
+            echo "NUVIO_SUPABASE_URL=${BACKEND_URL}"
+            echo "NUVIO_SUPABASE_ANON_KEY=${BACKEND_KEY}"
+            echo "NUVIO_SUPABASE_FALLBACK_URL="
+            echo "SIMKL_CLIENT_ID=${SIMKL_ID}"
+          } > local.properties
+
+      - name: Build full release APKs
+        run: ./gradlew :androidApp:assembleFullRelease -Pnuvio.app.versionName="${{ steps.ver.outputs.version }}" --stacktrace
+
+      - name: Publish release on this fork
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          gh release delete "${version}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag -y || true
+          gh release create "${version}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "${version}" \
+            --notes "Self-hosted build of upstream ${version}, using the self-hosted backend." \
+            --latest \
+            androidApp/build/outputs/apk/full/release/*.apk
