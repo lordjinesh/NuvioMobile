@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
       KEYSTORE_BASE64: ${{ secrets.NUVIO_KEYSTORE_BASE64 }}
