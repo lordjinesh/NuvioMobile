@@ -22,6 +22,7 @@ jobs:
       BACKEND_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
       BACKEND_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
       SIMKL_ID: ${{ secrets.NUVIO_SIMKL_CLIENT_ID }}
+      MDBLIST_ID: ${{ secrets.NUVIO_MDBLIST_CLIENT_ID }}
 
     steps:
       - name: Check out source
@@ -69,6 +70,7 @@ jobs:
             echo "NUVIO_SUPABASE_ANON_KEY=${BACKEND_KEY}"
             echo "NUVIO_SUPABASE_FALLBACK_URL="
             echo "SIMKL_CLIENT_ID=${SIMKL_ID}"
+            echo "MDBLIST_CLIENT_ID=${MDBLIST_ID}"
           } > local.properties
 
       - name: Build full release APKs
